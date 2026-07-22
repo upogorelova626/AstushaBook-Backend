@@ -1,13 +1,102 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+enum HandbookVisibility {
+  EVERYONE
+  SELECTED_USERS
+  OWNER_ONLY
+}
+
+enum HandbookEditingAccess {
+  OWNER_ONLY
+  SELECTED_EDITORS
+  EVERYONE_WITH_ACCESS
+}
+
+enum HandbookColumnType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  DATE
+}
+
+model Handbook {
+  id                String                @id @default(uuid())
+  name              String
+  description       String                @default("")
+  systemName        String                @unique @map("system_name")
+  tags              String[]              @default([])
+  ownerId           String                @map("owner_id")
+  visibility        HandbookVisibility    @default(OWNER_ONLY)
+  editingPermission HandbookEditingAccess @default(OWNER_ONLY) @map("editing_permission")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  columns   HandbookColumn[]
+  editors   HandbookEditor[]
+  viewers   HandbookViewer[]
+  favorites HandbookFavorite[]
+
+  @@index([ownerId])
+  @@map("handbooks")
+}
+
+model HandbookFavorite {
+  handbookId String   @map("handbook_id")
+  userId     String   @map("user_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  handbook Handbook @relation(fields: [handbookId], references: [id], onDelete: Cascade)
+
+  @@id([handbookId, userId])
+  @@index([userId])
+  @@map("handbook_favorites")
+}
+
+model HandbookColumn {
+  id         String             @id @default(uuid())
+  handbookId String             @map("handbook_id")
+  name       String
+  type       HandbookColumnType
+  required   Boolean            @default(false)
+  position   Int
+  createdAt  DateTime           @default(now()) @map("created_at")
+  updatedAt  DateTime           @updatedAt @map("updated_at")
+
+  handbook   Handbook           @relation(fields: [handbookId], references: [id], onDelete: Cascade)
+
+  @@unique([handbookId, position])
+  @@index([handbookId])
+  @@map("handbook_columns")
+}
+
+model HandbookEditor {
+  handbookId String   @map("handbook_id")
+  userId     String   @map("user_id")
+  addedAt    DateTime @default(now()) @map("added_at")
+
+  handbook   Handbook @relation(fields: [handbookId], references: [id], onDelete: Cascade)
+
+  @@id([handbookId, userId])
+  @@index([userId])
+  @@map("handbook_editors")
+}
+
+model HandbookViewer {
+  handbookId String   @map("handbook_id")
+  userId     String   @map("user_id")
+  addedAt    DateTime @default(now()) @map("added_at")
+
+  handbook   Handbook @relation(fields: [handbookId], references: [id], onDelete: Cascade)
+
+  @@id([handbookId, userId])
+  @@index([userId])
+  @@map("handbook_viewers")
 }
