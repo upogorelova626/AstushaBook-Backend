@@ -43,6 +43,7 @@ model Handbook {
   editors   HandbookEditor[]
   viewers   HandbookViewer[]
   favorites HandbookFavorite[]
+  rows HandbookRow[]
 
   @@index([ownerId])
   @@map("handbooks")
@@ -99,4 +100,18 @@ model HandbookViewer {
   @@id([handbookId, userId])
   @@index([userId])
   @@map("handbook_viewers")
+}
+
+model HandbookRow {
+  id          String   @id @default(uuid())
+  handbookId  String   @map("handbook_id")
+  values      Json
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  handbook Handbook @relation(fields: [handbookId], references: [id], onDelete: Cascade)
+
+  @@index([handbookId, createdAt])
+  @@map("handbook_rows")
 }

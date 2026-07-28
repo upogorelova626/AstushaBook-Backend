@@ -1,10 +1,26 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Req,
+  UseGuards,
+  Delete,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import {
   ApiCookieAuth,
   ApiCreatedResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiTags,
+  ApiForbiddenResponse,
+  ApiNoContentResponse,
 } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -33,6 +49,30 @@ export class HandbooksController {
     return this.handbooksService.getAll(request.user.id, dto);
   }
 
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Получить хэндбук по идентификатору',
+    description:
+      'Возвращает хэндбук, если текущий пользователь имеет к нему доступ',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID хэндбука',
+    format: 'uuid',
+  })
+  @ApiOkResponse({
+    description: 'Хэндбук успешно получен',
+  })
+  @ApiNotFoundResponse({
+    description: 'Хэндбук не найден или у пользователя нет доступа',
+  })
+  getById(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.handbooksService.getById(request.user.id, id);
+  }
+
   @Post()
   @ApiOperation({
     summary: 'Создать хэндбук',
@@ -42,5 +82,27 @@ export class HandbooksController {
   })
   create(@Req() request: AuthenticatedRequest, @Body() dto: CreateHandbookDto) {
     return this.handbooksService.create(request.user.id, dto);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Удалить хэндбук',
+    description: 'Удалить хэндбук может только его владелец',
+  })
+  @ApiNoContentResponse({
+    description: 'Хэндбук успешно удалён',
+  })
+  @ApiForbiddenResponse({
+    description: 'Удалить хэндбук может только владелец',
+  })
+  @ApiNotFoundResponse({
+    description: 'Хэндбук не найден',
+  })
+  delete(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.handbooksService.delete(request.user.id, id);
   }
 }

@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
 import type { Prisma } from '../generated/prisma/client';
 import {
@@ -124,6 +129,31 @@ export class HandbooksService {
     };
   }
 
+  async delete(userId: string, handbookId: string): Promise<void> {
+    const handbook = await this.prisma.handbook.findUnique({
+      where: {
+        id: handbookId,
+      },
+      select: {
+        ownerId: true,
+      },
+    });
+
+    if (!handbook) {
+      throw new NotFoundException('Хэндбук не найден');
+    }
+
+    if (handbook.ownerId !== userId) {
+      throw new ForbiddenException('Удалить хэндбук может только владелец');
+    }
+
+    await this.prisma.handbook.delete({
+      where: {
+        id: handbookId,
+      },
+    });
+  }
+
   private buildAccessWhere(userId: string): Prisma.HandbookWhereInput {
     return {
       OR: [
@@ -222,5 +252,29 @@ export class HandbooksService {
         (tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean),
       ),
     ];
+  }
+
+  async getById(userId: string, handbookId: string) {
+    const handbook = await this.prisma.handbook.findFirst({
+      where: {
+        id: handbookId,
+        AND: [this.buildAccessWhere(userId)],
+      },
+      include: {
+        columns: {
+          orderBy: {
+            position: 'asc',
+          },
+        },
+        editors: true,
+        viewers: true,
+      },
+    });
+
+    if (!handbook) {
+      throw new NotFoundException('Хэндбук не найден');
+    }
+
+    return handbook;
   }
 }
