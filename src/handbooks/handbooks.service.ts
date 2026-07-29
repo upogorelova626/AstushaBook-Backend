@@ -4,17 +4,20 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-
 import type { Prisma } from '../generated/prisma/client';
 import {
+  HandbookColumnType,
   HandbookEditingAccess,
   HandbookVisibility,
 } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateHandbookDto } from './dto/create-handbook.dto';
 import { GetHandbooksDto, HandbookListFilter } from './dto/get-handbooks.dto';
+import { CreateHandbookRowDto } from './dto/create-handbook-row.dto';
 
 const HANDBOOKS_BATCH_SIZE = 10;
+
+const HANDBOOK_ROWS_BATCH_SIZE = 15;
 
 @Injectable()
 export class HandbooksService {
@@ -154,6 +157,65 @@ export class HandbooksService {
     });
   }
 
+  async addRow(userId: string, handbookId: string, dto: CreateHandbookRowDto) {
+    const handbook = await this.prisma.handbook.findFirst({
+      where: {
+        id: handbookId,
+        AND: [this.buildAccessWhere(userId)],
+      },
+      select: {
+        ownerId: true,
+        editingPermission: true,
+
+        columns: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            required: true,
+          },
+        },
+
+        editors: {
+          where: {
+            userId,
+          },
+          select: {
+            userId: true,
+          },
+        },
+      },
+    });
+
+    if (!handbook) {
+      throw new NotFoundException('Хэндбук не найден');
+    }
+
+    const isOwner = handbook.ownerId === userId;
+    const isEditor = handbook.editors.length > 0;
+
+    const canEdit =
+      isOwner ||
+      handbook.editingPermission ===
+        HandbookEditingAccess.EVERYONE_WITH_ACCESS ||
+      (handbook.editingPermission === HandbookEditingAccess.SELECTED_EDITORS &&
+        isEditor);
+
+    if (!canEdit) {
+      throw new ForbiddenException('У вас нет прав на добавление строк');
+    }
+
+    const values = this.prepareRowValues(handbook.columns, dto.values);
+
+    return this.prisma.handbookRow.create({
+      data: {
+        handbookId,
+        createdById: userId,
+        values,
+      },
+    });
+  }
+
   private buildAccessWhere(userId: string): Prisma.HandbookWhereInput {
     return {
       OR: [
@@ -276,5 +338,133 @@ export class HandbooksService {
     }
 
     return handbook;
+  }
+
+  private prepareRowValues(
+    columns: Array<{
+      id: string;
+      name: string;
+      type: HandbookColumnType;
+      required: boolean;
+    }>,
+    values: Record<string, unknown>,
+  ): Prisma.InputJsonObject {
+    const columnsById = new Map(columns.map((column) => [column.id, column]));
+
+    for (const columnId of Object.keys(values)) {
+      if (!columnsById.has(columnId)) {
+        throw new BadRequestException(
+          `Колонка с идентификатором ${columnId} не существует`,
+        );
+      }
+    }
+
+    const preparedValues: Record<string, Prisma.InputJsonValue> = {};
+
+    for (const column of columns) {
+      const value = values[column.id];
+
+      const isEmpty = value === undefined || value === null || value === '';
+
+      if (column.required && isEmpty) {
+        throw new BadRequestException(
+          `Обязательное поле «${column.name}» не заполнено`,
+        );
+      }
+
+      if (isEmpty) {
+        continue;
+      }
+
+      switch (column.type) {
+        case HandbookColumnType.TEXT:
+          if (typeof value !== 'string') {
+            throw new BadRequestException(
+              `Поле «${column.name}» должно быть строкой`,
+            );
+          }
+
+          preparedValues[column.id] = value;
+          break;
+
+        case HandbookColumnType.NUMBER:
+          if (typeof value !== 'number' || !Number.isFinite(value)) {
+            throw new BadRequestException(
+              `Поле «${column.name}» должно быть числом`,
+            );
+          }
+
+          preparedValues[column.id] = value;
+          break;
+
+        case HandbookColumnType.BOOLEAN:
+          if (typeof value !== 'boolean') {
+            throw new BadRequestException(
+              `Поле «${column.name}» должно содержать true или false`,
+            );
+          }
+
+          preparedValues[column.id] = value;
+          break;
+
+        case HandbookColumnType.DATE:
+          if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
+            throw new BadRequestException(
+              `Поле «${column.name}» должно содержать корректную дату`,
+            );
+          }
+
+          preparedValues[column.id] = new Date(value).toISOString();
+          break;
+      }
+    }
+
+    return preparedValues;
+  }
+
+  async getRows(userId: string, handbookId: string, offset = 0) {
+    const handbook = await this.prisma.handbook.findFirst({
+      where: {
+        id: handbookId,
+        AND: [this.buildAccessWhere(userId)],
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!handbook) {
+      throw new NotFoundException('Хэндбук не найден');
+    }
+
+    const rows = await this.prisma.handbookRow.findMany({
+      where: {
+        handbookId,
+      },
+      select: {
+        id: true,
+        values: true,
+        createdById: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: [
+        {
+          createdAt: 'asc',
+        },
+        {
+          id: 'asc',
+        },
+      ],
+      skip: offset,
+      take: HANDBOOK_ROWS_BATCH_SIZE + 1,
+    });
+
+    const hasMore = rows.length > HANDBOOK_ROWS_BATCH_SIZE;
+
+    return {
+      items: rows.slice(0, HANDBOOK_ROWS_BATCH_SIZE),
+      nextOffset: hasMore ? offset + HANDBOOK_ROWS_BATCH_SIZE : null,
+    };
   }
 }

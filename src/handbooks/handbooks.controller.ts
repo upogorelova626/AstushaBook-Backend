@@ -1,31 +1,34 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
   Req,
   UseGuards,
-  Delete,
-  HttpCode,
-  HttpStatus,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
-  ApiForbiddenResponse,
-  ApiNoContentResponse,
 } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedRequest } from '../auth/types/authenticated-request.type';
 import { CreateHandbookDto } from './dto/create-handbook.dto';
+import { CreateHandbookRowDto } from './dto/create-handbook-row.dto';
+import { GetHandbookRowsDto } from './dto/get-handbooks-row.dto';
 import { GetHandbooksDto } from './dto/get-handbooks.dto';
 import { HandbooksService } from './handbooks.service';
 
@@ -104,5 +107,60 @@ export class HandbooksController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
     return this.handbooksService.delete(request.user.id, id);
+  }
+
+  @Post(':id/rows')
+  @ApiOperation({
+    summary: 'Добавить строку в хэндбук',
+    description:
+      'Добавляет новую строку, если текущий пользователь имеет право редактировать хэндбук',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID хэндбука',
+    format: 'uuid',
+  })
+  @ApiCreatedResponse({
+    description: 'Строка успешно добавлена',
+  })
+  @ApiBadRequestResponse({
+    description: 'Переданы некорректные значения строки',
+  })
+  @ApiForbiddenResponse({
+    description: 'У пользователя нет прав на редактирование хэндбука',
+  })
+  @ApiNotFoundResponse({
+    description: 'Хэндбук не найден или недоступен пользователю',
+  })
+  addRow(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateHandbookRowDto,
+  ) {
+    return this.handbooksService.addRow(request.user.id, id, dto);
+  }
+
+  @Post(':id/rows/search')
+  @ApiOperation({
+    summary: 'Получить строки хэндбука',
+    description: 'Возвращает строки хэндбука по 15 штук',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID хэндбука',
+    format: 'uuid',
+  })
+  @ApiOkResponse({
+    description: 'Строки хэндбука успешно получены',
+  })
+  @ApiNotFoundResponse({
+    description: 'Хэндбук не найден или недоступен пользователю',
+  })
+  getRows(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: GetHandbookRowsDto,
+  ) {
+    return this.handbooksService.getRows(request.user.id, id, dto.offset);
   }
 }
