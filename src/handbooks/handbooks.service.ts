@@ -14,10 +14,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateHandbookDto } from './dto/create-handbook.dto';
 import { GetHandbooksDto, HandbookListFilter } from './dto/get-handbooks.dto';
 import { CreateHandbookRowDto } from './dto/create-handbook-row.dto';
+import { UpdateHandbookCellDto } from './dto/update-handbook-ceil.dto';
 
 const HANDBOOKS_BATCH_SIZE = 10;
-
 const HANDBOOK_ROWS_BATCH_SIZE = 15;
+
+type HandbookCellValue = string | number | boolean;
 
 @Injectable()
 export class HandbooksService {
@@ -216,6 +218,180 @@ export class HandbooksService {
     });
   }
 
+  async getById(userId: string, handbookId: string) {
+    const handbook = await this.prisma.handbook.findFirst({
+      where: {
+        id: handbookId,
+        AND: [this.buildAccessWhere(userId)],
+      },
+      include: {
+        columns: {
+          orderBy: {
+            position: 'asc',
+          },
+        },
+        editors: true,
+        viewers: true,
+      },
+    });
+
+    if (!handbook) {
+      throw new NotFoundException('Хэндбук не найден');
+    }
+
+    return handbook;
+  }
+
+  async getRows(userId: string, handbookId: string, offset = 0) {
+    const handbook = await this.prisma.handbook.findFirst({
+      where: {
+        id: handbookId,
+        AND: [this.buildAccessWhere(userId)],
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!handbook) {
+      throw new NotFoundException('Хэндбук не найден');
+    }
+
+    const rows = await this.prisma.handbookRow.findMany({
+      where: {
+        handbookId,
+      },
+      select: {
+        id: true,
+        values: true,
+        createdById: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: [
+        {
+          createdAt: 'asc',
+        },
+        {
+          id: 'asc',
+        },
+      ],
+      skip: offset,
+      take: HANDBOOK_ROWS_BATCH_SIZE + 1,
+    });
+
+    const hasMore = rows.length > HANDBOOK_ROWS_BATCH_SIZE;
+
+    return {
+      items: rows.slice(0, HANDBOOK_ROWS_BATCH_SIZE),
+      nextOffset: hasMore ? offset + HANDBOOK_ROWS_BATCH_SIZE : null,
+    };
+  }
+
+  async updateCell(
+    userId: string,
+    handbookId: string,
+    rowId: string,
+    columnId: string,
+    dto: UpdateHandbookCellDto,
+  ) {
+    const handbook = await this.prisma.handbook.findFirst({
+      where: {
+        id: handbookId,
+        AND: [this.buildAccessWhere(userId)],
+      },
+      select: {
+        ownerId: true,
+        editingPermission: true,
+
+        editors: {
+          where: {
+            userId,
+          },
+          select: {
+            userId: true,
+          },
+        },
+
+        columns: {
+          where: {
+            id: columnId,
+          },
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            required: true,
+          },
+        },
+      },
+    });
+
+    if (!handbook) {
+      throw new NotFoundException('Хэндбук не найден');
+    }
+
+    const isOwner = handbook.ownerId === userId;
+    const isEditor = handbook.editors.length > 0;
+
+    const canEdit =
+      isOwner ||
+      handbook.editingPermission ===
+        HandbookEditingAccess.EVERYONE_WITH_ACCESS ||
+      (handbook.editingPermission === HandbookEditingAccess.SELECTED_EDITORS &&
+        isEditor);
+
+    if (!canEdit) {
+      throw new ForbiddenException('У вас нет прав на редактирование хэндбука');
+    }
+
+    const column = handbook.columns[0];
+
+    if (!column) {
+      throw new NotFoundException('Колонка не найдена');
+    }
+
+    const row = await this.prisma.handbookRow.findFirst({
+      where: {
+        id: rowId,
+        handbookId,
+      },
+      select: {
+        id: true,
+        values: true,
+      },
+    });
+
+    if (!row) {
+      throw new NotFoundException('Строка не найдена');
+    }
+
+    const preparedValue = this.prepareRowValues([column], {
+      [columnId]: dto.value,
+    });
+
+    const values: Record<string, HandbookCellValue> = {
+      ...(row.values as Record<string, HandbookCellValue>),
+    };
+
+    const value = preparedValue[columnId];
+
+    if (value !== undefined) {
+      values[columnId] = value;
+    } else {
+      delete values[columnId];
+    }
+
+    return this.prisma.handbookRow.update({
+      where: {
+        id: rowId,
+      },
+      data: {
+        values,
+      },
+    });
+  }
+
   private buildAccessWhere(userId: string): Prisma.HandbookWhereInput {
     return {
       OR: [
@@ -316,30 +492,6 @@ export class HandbooksService {
     ];
   }
 
-  async getById(userId: string, handbookId: string) {
-    const handbook = await this.prisma.handbook.findFirst({
-      where: {
-        id: handbookId,
-        AND: [this.buildAccessWhere(userId)],
-      },
-      include: {
-        columns: {
-          orderBy: {
-            position: 'asc',
-          },
-        },
-        editors: true,
-        viewers: true,
-      },
-    });
-
-    if (!handbook) {
-      throw new NotFoundException('Хэндбук не найден');
-    }
-
-    return handbook;
-  }
-
   private prepareRowValues(
     columns: Array<{
       id: string;
@@ -348,7 +500,7 @@ export class HandbooksService {
       required: boolean;
     }>,
     values: Record<string, unknown>,
-  ): Prisma.InputJsonObject {
+  ): Record<string, HandbookCellValue> {
     const columnsById = new Map(columns.map((column) => [column.id, column]));
 
     for (const columnId of Object.keys(values)) {
@@ -359,7 +511,7 @@ export class HandbooksService {
       }
     }
 
-    const preparedValues: Record<string, Prisma.InputJsonValue> = {};
+    const preparedValues: Record<string, HandbookCellValue> = {};
 
     for (const column of columns) {
       const value = values[column.id];
@@ -420,51 +572,5 @@ export class HandbooksService {
     }
 
     return preparedValues;
-  }
-
-  async getRows(userId: string, handbookId: string, offset = 0) {
-    const handbook = await this.prisma.handbook.findFirst({
-      where: {
-        id: handbookId,
-        AND: [this.buildAccessWhere(userId)],
-      },
-      select: {
-        id: true,
-      },
-    });
-
-    if (!handbook) {
-      throw new NotFoundException('Хэндбук не найден');
-    }
-
-    const rows = await this.prisma.handbookRow.findMany({
-      where: {
-        handbookId,
-      },
-      select: {
-        id: true,
-        values: true,
-        createdById: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-      orderBy: [
-        {
-          createdAt: 'asc',
-        },
-        {
-          id: 'asc',
-        },
-      ],
-      skip: offset,
-      take: HANDBOOK_ROWS_BATCH_SIZE + 1,
-    });
-
-    const hasMore = rows.length > HANDBOOK_ROWS_BATCH_SIZE;
-
-    return {
-      items: rows.slice(0, HANDBOOK_ROWS_BATCH_SIZE),
-      nextOffset: hasMore ? offset + HANDBOOK_ROWS_BATCH_SIZE : null,
-    };
   }
 }

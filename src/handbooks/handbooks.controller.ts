@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Param,
   ParseUUIDPipe,
   Post,
@@ -31,6 +32,7 @@ import { CreateHandbookRowDto } from './dto/create-handbook-row.dto';
 import { GetHandbookRowsDto } from './dto/get-handbooks-row.dto';
 import { GetHandbooksDto } from './dto/get-handbooks.dto';
 import { HandbooksService } from './handbooks.service';
+import { UpdateHandbookCellDto } from './dto/update-handbook-ceil.dto';
 
 @ApiTags('Handbooks')
 @ApiCookieAuth('accessToken')
@@ -162,5 +164,43 @@ export class HandbooksController {
     @Body() dto: GetHandbookRowsDto,
   ) {
     return this.handbooksService.getRows(request.user.id, id, dto.offset);
+  }
+
+  @Patch(':id/rows/:rowId/cells/:columnId')
+  @ApiOperation({
+    summary: 'Изменить значение ячейки',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID хэндбука',
+    format: 'uuid',
+  })
+  @ApiParam({
+    name: 'rowId',
+    description: 'UUID строки',
+    format: 'uuid',
+  })
+  @ApiParam({
+    name: 'columnId',
+    description: 'UUID колонки',
+    format: 'uuid',
+  })
+  @ApiOkResponse({
+    description: 'Ячейка успешно изменена',
+  })
+  updateCell(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) handbookId: string,
+    @Param('rowId', ParseUUIDPipe) rowId: string,
+    @Param('columnId', ParseUUIDPipe) columnId: string,
+    @Body() dto: UpdateHandbookCellDto,
+  ) {
+    return this.handbooksService.updateCell(
+      request.user.id,
+      handbookId,
+      rowId,
+      columnId,
+      dto,
+    );
   }
 }
