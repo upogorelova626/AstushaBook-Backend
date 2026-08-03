@@ -12,9 +12,9 @@ import {
 } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateHandbookDto } from './dto/create-handbook.dto';
-import { GetHandbooksDto, HandbookListFilter } from './dto/get-handbooks.dto';
 import { CreateHandbookRowDto } from './dto/create-handbook-row.dto';
-import { UpdateHandbookCellDto } from './dto/update-handbook-ceil.dto';
+import { GetHandbooksDto, HandbookListFilter } from './dto/get-handbooks.dto';
+import { UpdateHandbookRowsDto } from './dto/update-handbook-rows.dto';
 
 const HANDBOOKS_BATCH_SIZE = 10;
 const HANDBOOK_ROWS_BATCH_SIZE = 15;
@@ -288,107 +288,118 @@ export class HandbooksService {
     };
   }
 
-  async updateCell(
+  async updateRows(
     userId: string,
     handbookId: string,
-    rowId: string,
-    columnId: string,
-    dto: UpdateHandbookCellDto,
+    dto: UpdateHandbookRowsDto,
   ) {
-    const handbook = await this.prisma.handbook.findFirst({
-      where: {
-        id: handbookId,
-        AND: [this.buildAccessWhere(userId)],
-      },
-      select: {
-        ownerId: true,
-        editingPermission: true,
+    const rowIds = dto.rows.map((row) => row.id);
+    const uniqueRowIds = new Set(rowIds);
 
-        editors: {
-          where: {
-            userId,
+    if (uniqueRowIds.size !== rowIds.length) {
+      throw new BadRequestException(
+        'Одна и та же строка передана несколько раз',
+      );
+    }
+
+    return this.prisma.$transaction(async (transaction) => {
+      const handbook = await transaction.handbook.findFirst({
+        where: {
+          id: handbookId,
+          AND: [this.buildAccessWhere(userId)],
+        },
+        select: {
+          ownerId: true,
+          editingPermission: true,
+
+          editors: {
+            where: {
+              userId,
+            },
+            select: {
+              userId: true,
+            },
           },
-          select: {
-            userId: true,
+
+          columns: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              required: true,
+            },
           },
         },
+      });
 
-        columns: {
-          where: {
-            id: columnId,
-          },
-          select: {
-            id: true,
-            name: true,
-            type: true,
-            required: true,
+      if (!handbook) {
+        throw new NotFoundException('Хэндбук не найден');
+      }
+
+      const isOwner = handbook.ownerId === userId;
+
+      const isEditor = handbook.editors.length > 0;
+
+      const canEdit =
+        isOwner ||
+        handbook.editingPermission ===
+          HandbookEditingAccess.EVERYONE_WITH_ACCESS ||
+        (handbook.editingPermission ===
+          HandbookEditingAccess.SELECTED_EDITORS &&
+          isEditor);
+
+      if (!canEdit) {
+        throw new ForbiddenException(
+          'У вас нет прав на редактирование хэндбука',
+        );
+      }
+
+      const existingRows = await transaction.handbookRow.findMany({
+        where: {
+          handbookId,
+          id: {
+            in: rowIds,
           },
         },
-      },
-    });
+        select: {
+          id: true,
+        },
+      });
 
-    if (!handbook) {
-      throw new NotFoundException('Хэндбук не найден');
-    }
+      const existingRowIds = new Set(existingRows.map((row) => row.id));
 
-    const isOwner = handbook.ownerId === userId;
-    const isEditor = handbook.editors.length > 0;
+      const missingRowId = rowIds.find((rowId) => !existingRowIds.has(rowId));
 
-    const canEdit =
-      isOwner ||
-      handbook.editingPermission ===
-        HandbookEditingAccess.EVERYONE_WITH_ACCESS ||
-      (handbook.editingPermission === HandbookEditingAccess.SELECTED_EDITORS &&
-        isEditor);
+      if (missingRowId) {
+        throw new NotFoundException(
+          `Строка с идентификатором ${missingRowId} не найдена`,
+        );
+      }
 
-    if (!canEdit) {
-      throw new ForbiddenException('У вас нет прав на редактирование хэндбука');
-    }
+      const preparedRows = dto.rows.map((row) => ({
+        id: row.id,
+        values: this.prepareRowValues(handbook.columns, row.values),
+      }));
 
-    const column = handbook.columns[0];
-
-    if (!column) {
-      throw new NotFoundException('Колонка не найдена');
-    }
-
-    const row = await this.prisma.handbookRow.findFirst({
-      where: {
-        id: rowId,
-        handbookId,
-      },
-      select: {
-        id: true,
-        values: true,
-      },
-    });
-
-    if (!row) {
-      throw new NotFoundException('Строка не найдена');
-    }
-
-    const preparedValue = this.prepareRowValues([column], {
-      [columnId]: dto.value,
-    });
-
-    const values: Record<string, HandbookCellValue> = {
-      ...(row.values as Record<string, HandbookCellValue>),
-    };
-
-    const value = preparedValue[columnId];
-
-    if (value !== undefined) {
-      values[columnId] = value;
-    } else {
-      delete values[columnId];
-    }
-
-    return this.prisma.handbookRow.update({
-      where: {
-        id: rowId,
-      },
-      data: {
-        values,
-      },
+      return Promise.all(
+        preparedRows.map((row) =>
+          transaction.handbookRow.update({
+            where: {
+              id: row.id,
+            },
+            data: {
+              values: row.values,
+            },
+            select: {
+              id: true,
+              values: true,
+              createdById: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          }),
+        ),
+      );
     });
   }
 

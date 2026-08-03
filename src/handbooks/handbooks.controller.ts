@@ -5,12 +5,12 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Patch,
   Param,
   ParseUUIDPipe,
   Post,
   Req,
   UseGuards,
+  Put,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -32,7 +32,7 @@ import { CreateHandbookRowDto } from './dto/create-handbook-row.dto';
 import { GetHandbookRowsDto } from './dto/get-handbooks-row.dto';
 import { GetHandbooksDto } from './dto/get-handbooks.dto';
 import { HandbooksService } from './handbooks.service';
-import { UpdateHandbookCellDto } from './dto/update-handbook-ceil.dto';
+import { UpdateHandbookRowsDto } from './dto/update-handbook-rows.dto';
 
 @ApiTags('Handbooks')
 @ApiCookieAuth('accessToken')
@@ -166,41 +166,17 @@ export class HandbooksController {
     return this.handbooksService.getRows(request.user.id, id, dto.offset);
   }
 
-  @Patch(':id/rows/:rowId/cells/:columnId')
+  @Put(':id/rows')
   @ApiOperation({
-    summary: 'Изменить значение ячейки',
+    summary: 'Заменить строки справочника',
+    description:
+      'Заменяет значения одной или нескольких строк справочника одной транзакцией',
   })
-  @ApiParam({
-    name: 'id',
-    description: 'UUID хэндбука',
-    format: 'uuid',
-  })
-  @ApiParam({
-    name: 'rowId',
-    description: 'UUID строки',
-    format: 'uuid',
-  })
-  @ApiParam({
-    name: 'columnId',
-    description: 'UUID колонки',
-    format: 'uuid',
-  })
-  @ApiOkResponse({
-    description: 'Ячейка успешно изменена',
-  })
-  updateCell(
+  updateRows(
     @Req() request: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) handbookId: string,
-    @Param('rowId', ParseUUIDPipe) rowId: string,
-    @Param('columnId', ParseUUIDPipe) columnId: string,
-    @Body() dto: UpdateHandbookCellDto,
+    @Body() dto: UpdateHandbookRowsDto,
   ) {
-    return this.handbooksService.updateCell(
-      request.user.id,
-      handbookId,
-      rowId,
-      columnId,
-      dto,
-    );
+    return this.handbooksService.updateRows(request.user.id, handbookId, dto);
   }
 }
