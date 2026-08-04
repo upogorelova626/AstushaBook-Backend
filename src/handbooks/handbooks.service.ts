@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma } from '../generated/prisma/client';
+import type { HandbookRow, Prisma } from '../generated/prisma/client';
 import {
   HandbookColumnType,
   HandbookEditingAccess,
@@ -15,6 +15,7 @@ import { CreateHandbookDto } from './dto/create-handbook.dto';
 import { CreateHandbookRowDto } from './dto/create-handbook-row.dto';
 import { GetHandbooksDto, HandbookListFilter } from './dto/get-handbooks.dto';
 import { UpdateHandbookRowsDto } from './dto/update-handbook-rows.dto';
+import { HandbookRowIdsDto } from './dto/handbook-row-ids.dto';
 
 const HANDBOOKS_BATCH_SIZE = 10;
 const HANDBOOK_ROWS_BATCH_SIZE = 15;
@@ -403,10 +404,9 @@ export class HandbooksService {
     });
   }
 
-  async deleteRow(
+  private async checkRowsEditingAccess(
     userId: string,
     handbookId: string,
-    rowId: string,
   ): Promise<void> {
     const handbook = await this.prisma.handbook.findFirst({
       where: {
@@ -442,19 +442,82 @@ export class HandbooksService {
         isEditor);
 
     if (!canEdit) {
-      throw new ForbiddenException('У вас нет прав на удаление строк');
+      throw new ForbiddenException('У вас нет прав на редактирование строк');
     }
+  }
 
-    const result = await this.prisma.handbookRow.deleteMany({
-      where: {
-        id: rowId,
-        handbookId,
-      },
+  async deleteRows(
+    userId: string,
+    handbookId: string,
+    dto: HandbookRowIdsDto,
+  ): Promise<void> {
+    await this.checkRowsEditingAccess(userId, handbookId);
+
+    await this.prisma.$transaction(async (transaction) => {
+      const result = await transaction.handbookRow.deleteMany({
+        where: {
+          handbookId,
+          id: {
+            in: dto.rowIds,
+          },
+        },
+      });
+
+      if (result.count !== dto.rowIds.length) {
+        throw new NotFoundException('Одна или несколько строк не найдены');
+      }
     });
+  }
 
-    if (result.count === 0) {
-      throw new NotFoundException('Строка не найдена');
-    }
+  async duplicateRows(
+    userId: string,
+    handbookId: string,
+    dto: HandbookRowIdsDto,
+  ) {
+    await this.checkRowsEditingAccess(userId, handbookId);
+
+    return this.prisma.$transaction(async (transaction) => {
+      const sourceRows = await transaction.handbookRow.findMany({
+        where: {
+          handbookId,
+          id: {
+            in: dto.rowIds,
+          },
+        },
+        select: {
+          id: true,
+          values: true,
+        },
+      });
+
+      if (sourceRows.length !== dto.rowIds.length) {
+        throw new NotFoundException('Одна или несколько строк не найдены');
+      }
+
+      const sourceRowsById = new Map(sourceRows.map((row) => [row.id, row]));
+
+      const duplicatedRows: HandbookRow[] = [];
+
+      for (const rowId of dto.rowIds) {
+        const sourceRow = sourceRowsById.get(rowId);
+
+        if (!sourceRow) {
+          throw new NotFoundException('Строка не найдена');
+        }
+
+        const duplicatedRow = await transaction.handbookRow.create({
+          data: {
+            handbookId,
+            createdById: userId,
+            values: sourceRow.values as Prisma.InputJsonValue,
+          },
+        });
+
+        duplicatedRows.push(duplicatedRow);
+      }
+
+      return duplicatedRows;
+    });
   }
 
   private buildAccessWhere(userId: string): Prisma.HandbookWhereInput {

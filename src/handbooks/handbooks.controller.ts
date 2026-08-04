@@ -33,6 +33,7 @@ import { GetHandbookRowsDto } from './dto/get-handbooks-row.dto';
 import { GetHandbooksDto } from './dto/get-handbooks.dto';
 import { HandbooksService } from './handbooks.service';
 import { UpdateHandbookRowsDto } from './dto/update-handbook-rows.dto';
+import { HandbookRowIdsDto } from './dto/handbook-row-ids.dto';
 
 @ApiTags('Handbooks')
 @ApiCookieAuth('accessToken')
@@ -180,37 +181,69 @@ export class HandbooksController {
     return this.handbooksService.updateRows(request.user.id, handbookId, dto);
   }
 
-  @Delete(':id/rows/:rowId')
+  @Delete(':id/rows')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
-    summary: 'Удалить строку хэндбука',
-    description:
-      'Удаляет строку, если текущий пользователь имеет право редактировать хэндбук',
+    summary: 'Удалить строки хэндбука',
+    description: 'Удаляет одну или несколько строк одной операцией',
   })
   @ApiParam({
     name: 'id',
     description: 'UUID хэндбука',
     format: 'uuid',
   })
-  @ApiParam({
-    name: 'rowId',
-    description: 'UUID строки',
-    format: 'uuid',
-  })
   @ApiNoContentResponse({
-    description: 'Строка успешно удалена',
+    description: 'Строки успешно удалены',
+  })
+  @ApiBadRequestResponse({
+    description: 'Передан некорректный список строк',
   })
   @ApiForbiddenResponse({
-    description: 'У пользователя нет прав на удаление строки',
+    description: 'У пользователя нет прав на удаление строк',
   })
   @ApiNotFoundResponse({
-    description: 'Хэндбук или строка не найдены',
+    description: 'Хэндбук или одна из строк не найдены',
   })
-  deleteRow(
+  deleteRows(
     @Req() request: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) handbookId: string,
-    @Param('rowId', ParseUUIDPipe) rowId: string,
+    @Body() dto: HandbookRowIdsDto,
   ): Promise<void> {
-    return this.handbooksService.deleteRow(request.user.id, handbookId, rowId);
+    return this.handbooksService.deleteRows(request.user.id, handbookId, dto);
+  }
+
+  @Post(':id/rows/duplicate')
+  @ApiOperation({
+    summary: 'Дублировать строки хэндбука',
+    description:
+      'Создаёт копии одной или нескольких строк и возвращает новые строки',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID хэндбука',
+    format: 'uuid',
+  })
+  @ApiCreatedResponse({
+    description: 'Строки успешно продублированы',
+  })
+  @ApiBadRequestResponse({
+    description: 'Передан некорректный список строк',
+  })
+  @ApiForbiddenResponse({
+    description: 'У пользователя нет прав на дублирование строк',
+  })
+  @ApiNotFoundResponse({
+    description: 'Хэндбук или одна из строк не найдены',
+  })
+  duplicateRows(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) handbookId: string,
+    @Body() dto: HandbookRowIdsDto,
+  ) {
+    return this.handbooksService.duplicateRows(
+      request.user.id,
+      handbookId,
+      dto,
+    );
   }
 }
