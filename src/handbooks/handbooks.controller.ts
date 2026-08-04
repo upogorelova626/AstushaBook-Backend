@@ -179,4 +179,38 @@ export class HandbooksController {
   ) {
     return this.handbooksService.updateRows(request.user.id, handbookId, dto);
   }
+
+  @Delete(':id/rows/:rowId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Удалить строку хэндбука',
+    description:
+      'Удаляет строку, если текущий пользователь имеет право редактировать хэндбук',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID хэндбука',
+    format: 'uuid',
+  })
+  @ApiParam({
+    name: 'rowId',
+    description: 'UUID строки',
+    format: 'uuid',
+  })
+  @ApiNoContentResponse({
+    description: 'Строка успешно удалена',
+  })
+  @ApiForbiddenResponse({
+    description: 'У пользователя нет прав на удаление строки',
+  })
+  @ApiNotFoundResponse({
+    description: 'Хэндбук или строка не найдены',
+  })
+  deleteRow(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) handbookId: string,
+    @Param('rowId', ParseUUIDPipe) rowId: string,
+  ): Promise<void> {
+    return this.handbooksService.deleteRow(request.user.id, handbookId, rowId);
+  }
 }

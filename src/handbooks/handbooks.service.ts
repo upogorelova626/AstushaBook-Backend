@@ -403,6 +403,60 @@ export class HandbooksService {
     });
   }
 
+  async deleteRow(
+    userId: string,
+    handbookId: string,
+    rowId: string,
+  ): Promise<void> {
+    const handbook = await this.prisma.handbook.findFirst({
+      where: {
+        id: handbookId,
+        AND: [this.buildAccessWhere(userId)],
+      },
+      select: {
+        ownerId: true,
+        editingPermission: true,
+        editors: {
+          where: {
+            userId,
+          },
+          select: {
+            userId: true,
+          },
+        },
+      },
+    });
+
+    if (!handbook) {
+      throw new NotFoundException('Хэндбук не найден');
+    }
+
+    const isOwner = handbook.ownerId === userId;
+    const isEditor = handbook.editors.length > 0;
+
+    const canEdit =
+      isOwner ||
+      handbook.editingPermission ===
+        HandbookEditingAccess.EVERYONE_WITH_ACCESS ||
+      (handbook.editingPermission === HandbookEditingAccess.SELECTED_EDITORS &&
+        isEditor);
+
+    if (!canEdit) {
+      throw new ForbiddenException('У вас нет прав на удаление строк');
+    }
+
+    const result = await this.prisma.handbookRow.deleteMany({
+      where: {
+        id: rowId,
+        handbookId,
+      },
+    });
+
+    if (result.count === 0) {
+      throw new NotFoundException('Строка не найдена');
+    }
+  }
+
   private buildAccessWhere(userId: string): Prisma.HandbookWhereInput {
     return {
       OR: [
