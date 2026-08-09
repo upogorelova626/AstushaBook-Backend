@@ -25,6 +25,10 @@ enum HandbookColumnType {
   NUMBER
   BOOLEAN
   DATE
+  LIST
+  USER
+  REFERENCE
+  FORMATTED_STRING
 }
 
 model Handbook {

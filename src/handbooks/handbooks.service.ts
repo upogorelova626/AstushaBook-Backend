@@ -16,6 +16,8 @@ import { CreateHandbookRowDto } from './dto/create-handbook-row.dto';
 import { GetHandbooksDto, HandbookListFilter } from './dto/get-handbooks.dto';
 import { UpdateHandbookRowsDto } from './dto/update-handbook-rows.dto';
 import { HandbookRowIdsDto } from './dto/handbook-row-ids.dto';
+import { isUUID } from 'class-validator';
+import { UsersService } from 'src/users/users.service';
 
 const HANDBOOKS_BATCH_SIZE = 10;
 const HANDBOOK_ROWS_BATCH_SIZE = 15;
@@ -24,7 +26,10 @@ type HandbookCellValue = string | number | boolean;
 
 @Injectable()
 export class HandbooksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly usersService: UsersService,
+  ) {}
 
   create(ownerId: string, dto: CreateHandbookDto) {
     if (
@@ -243,7 +248,12 @@ export class HandbooksService {
     return handbook;
   }
 
-  async getRows(userId: string, handbookId: string, offset = 0) {
+  async getRows(
+    userId: string,
+    handbookId: string,
+    accessToken: string,
+    offset = 0,
+  ) {
     const handbook = await this.prisma.handbook.findFirst({
       where: {
         id: handbookId,
@@ -251,6 +261,14 @@ export class HandbooksService {
       },
       select: {
         id: true,
+        columns: {
+          where: {
+            type: HandbookColumnType.USER,
+          },
+          select: {
+            id: true,
+          },
+        },
       },
     });
 
@@ -282,9 +300,46 @@ export class HandbooksService {
     });
 
     const hasMore = rows.length > HANDBOOK_ROWS_BATCH_SIZE;
+    const items = rows.slice(0, HANDBOOK_ROWS_BATCH_SIZE);
+
+    const userColumnIds = new Set(handbook.columns.map((column) => column.id));
+
+    const userIds = [
+      ...new Set(
+        items.flatMap((row) => {
+          const values = row.values as Record<string, unknown>;
+
+          return [...userColumnIds]
+            .map((columnId) => values[columnId])
+            .filter((value): value is string => typeof value === 'string');
+        }),
+      ),
+    ];
+
+    const users = await this.usersService.getByIds(userIds, accessToken);
+
+    const usersById = new Map(users.map((user) => [user.id, user]));
+
+    const preparedItems = items.map((row) => {
+      const values = row.values as Record<string, unknown>;
+      const preparedValues = { ...values };
+
+      for (const columnId of userColumnIds) {
+        const value = values[columnId];
+
+        if (typeof value === 'string') {
+          preparedValues[columnId] = usersById.get(value) ?? null;
+        }
+      }
+
+      return {
+        ...row,
+        values: preparedValues,
+      };
+    });
 
     return {
-      items: rows.slice(0, HANDBOOK_ROWS_BATCH_SIZE),
+      items: preparedItems,
       nextOffset: hasMore ? offset + HANDBOOK_ROWS_BATCH_SIZE : null,
     };
   }
@@ -695,6 +750,16 @@ export class HandbooksService {
           }
 
           preparedValues[column.id] = new Date(value).toISOString();
+          break;
+
+        case HandbookColumnType.USER:
+          if (typeof value !== 'string' || !isUUID(value)) {
+            throw new BadRequestException(
+              `Поле «${column.name}» должно содержать корректный ID пользователя`,
+            );
+          }
+
+          preparedValues[column.id] = value;
           break;
       }
     }

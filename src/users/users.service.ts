@@ -33,4 +33,30 @@ export class UsersService {
 
     return response.data;
   }
+
+  async getByIds(
+    ids: string[],
+    accessToken: string,
+  ): Promise<AstushaUserPreview[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const apiUrl = this.configService.getOrThrow<string>('ASTUSHA_ID_API_URL');
+    const response = await firstValueFrom(
+      this.http.post<AstushaUserPreview[]>(
+        `${apiUrl}/users/by-ids`,
+        {
+          ids,
+        },
+        {
+          headers: {
+            Cookie: `accessToken=${encodeURIComponent(accessToken)}`,
+          },
+        },
+      ),
+    );
+
+    return response.data;
+  }
 }

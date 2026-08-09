@@ -8,9 +8,9 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Req,
   UseGuards,
-  Put,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -31,9 +31,9 @@ import { CreateHandbookDto } from './dto/create-handbook.dto';
 import { CreateHandbookRowDto } from './dto/create-handbook-row.dto';
 import { GetHandbookRowsDto } from './dto/get-handbooks-row.dto';
 import { GetHandbooksDto } from './dto/get-handbooks.dto';
-import { HandbooksService } from './handbooks.service';
-import { UpdateHandbookRowsDto } from './dto/update-handbook-rows.dto';
 import { HandbookRowIdsDto } from './dto/handbook-row-ids.dto';
+import { UpdateHandbookRowsDto } from './dto/update-handbook-rows.dto';
+import { HandbooksService } from './handbooks.service';
 
 @ApiTags('Handbooks')
 @ApiCookieAuth('accessToken')
@@ -164,7 +164,12 @@ export class HandbooksController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: GetHandbookRowsDto,
   ) {
-    return this.handbooksService.getRows(request.user.id, id, dto.offset);
+    return this.handbooksService.getRows(
+      request.user.id,
+      id,
+      request.cookies.accessToken!,
+      dto.offset,
+    );
   }
 
   @Put(':id/rows')
