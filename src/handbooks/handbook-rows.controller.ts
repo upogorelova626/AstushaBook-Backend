@@ -135,6 +135,7 @@ export class HandbookRowsController {
     return this.handbookRowsService.updateRows(
       request.user.id,
       handbookId,
+      request.cookies.accessToken!,
       dto,
     );
   }

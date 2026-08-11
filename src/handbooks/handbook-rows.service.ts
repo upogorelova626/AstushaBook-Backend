@@ -178,6 +178,7 @@ export class HandbookRowsService {
   async updateRows(
     userId: string,
     handbookId: string,
+    accessToken: string,
     dto: UpdateHandbookRowsDto,
   ) {
     const rowIds = dto.rows.map((row) => row.id);
@@ -189,13 +190,12 @@ export class HandbookRowsService {
       );
     }
 
-    return this.prisma.$transaction(async (transaction) => {
+    const result = await this.prisma.$transaction(async (transaction) => {
       const handbook = await transaction.handbook.findFirst({
         where: {
           id: handbookId,
           AND: [this.buildAccessWhere(userId)],
         },
-
         select: {
           ownerId: true,
           editingPermission: true,
@@ -258,7 +258,7 @@ export class HandbookRowsService {
         values: this.prepareRowValues(handbook.columns, row.values),
       }));
 
-      return Promise.all(
+      const updatedRows = await Promise.all(
         preparedRows.map((row) =>
           transaction.handbookRow.update({
             where: {
@@ -277,7 +277,24 @@ export class HandbookRowsService {
           }),
         ),
       );
+
+      const userColumnIds = new Set(
+        handbook.columns
+          .filter((column) => column.type === HandbookColumnType.USER)
+          .map((column) => column.id),
+      );
+
+      return {
+        updatedRows,
+        userColumnIds,
+      };
     });
+
+    return this.populateUserValues(
+      result.updatedRows,
+      result.userColumnIds,
+      accessToken,
+    );
   }
 
   async deleteRows(
@@ -506,15 +523,22 @@ export class HandbookRowsService {
           preparedValues[column.id] = new Date(value).toISOString();
           break;
 
-        case HandbookColumnType.USER:
-          if (typeof value !== 'string' || !isUUID(value)) {
+        case HandbookColumnType.USER: {
+          if (
+            typeof value !== 'object' ||
+            value === null ||
+            !('id' in value) ||
+            typeof value.id !== 'string' ||
+            !isUUID(value.id)
+          ) {
             throw new BadRequestException(
-              `Поле «${column.name}» должно содержать корректный ID пользователя`,
+              `Поле «${column.name}» должно содержать корректного пользователя`,
             );
           }
 
-          preparedValues[column.id] = value;
+          preparedValues[column.id] = value.id;
           break;
+        }
       }
     }
 
