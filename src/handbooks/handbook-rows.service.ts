@@ -51,6 +51,7 @@ export class HandbookRowsService {
             name: true,
             type: true,
             required: true,
+            options: true,
           },
         },
 
@@ -215,6 +216,7 @@ export class HandbookRowsService {
               name: true,
               type: true,
               required: true,
+              options: true,
             },
           },
         },
@@ -452,6 +454,7 @@ export class HandbookRowsService {
       name: string;
       type: HandbookColumnType;
       required: boolean;
+      options: string[];
     }>,
     values: Record<string, unknown>,
   ): Record<string, HandbookCellValue> {
@@ -521,6 +524,16 @@ export class HandbookRowsService {
           }
 
           preparedValues[column.id] = new Date(value).toISOString();
+          break;
+
+        case HandbookColumnType.LIST:
+          if (typeof value !== 'string' || !column.options.includes(value)) {
+            throw new BadRequestException(
+              `Поле «${column.name}» содержит недопустимое значение`,
+            );
+          }
+
+          preparedValues[column.id] = value;
           break;
 
         case HandbookColumnType.USER: {
