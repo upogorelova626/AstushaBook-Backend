@@ -8,6 +8,7 @@ import type { Prisma } from '../generated/prisma/client';
 import {
   HandbookEditingAccess,
   HandbookVisibility,
+  HandbookColumnType,
 } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateHandbookDto } from './dto/create-handbook.dto';
@@ -59,6 +60,10 @@ export class HandbooksService {
             type: column.type,
             required: column.required,
             position,
+            options:
+              column.type === HandbookColumnType.LIST
+                ? (column.options ?? []).map((option) => option.trim())
+                : [],
           })),
         },
 
