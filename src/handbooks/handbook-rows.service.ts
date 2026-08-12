@@ -552,6 +552,17 @@ export class HandbookRowsService {
           preparedValues[column.id] = value.id;
           break;
         }
+
+        case HandbookColumnType.FORMATTED_STRING: {
+          if (typeof value !== 'string') {
+            throw new BadRequestException(
+              `Поле «${column.name}» должно содержать форматированный текст`,
+            );
+          }
+
+          preparedValues[column.id] = value;
+          break;
+        }
       }
     }
 
