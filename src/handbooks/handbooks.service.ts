@@ -13,6 +13,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateHandbookDto } from './dto/create-handbook.dto';
 import { GetHandbooksDto, HandbookListFilter } from './dto/get-handbooks.dto';
+import { UpdateHandbookDescriptionDto } from './dto/update-handbook-description.dto';
 
 const HANDBOOKS_BATCH_SIZE = 10;
 
@@ -156,6 +157,45 @@ export class HandbooksService {
     }
 
     return handbook;
+  }
+
+  async updateDescription(
+    userId: string,
+    handbookId: string,
+    dto: UpdateHandbookDescriptionDto,
+  ) {
+    const handbook = await this.prisma.handbook.findUnique({
+      where: {
+        id: handbookId,
+      },
+      select: {
+        ownerId: true,
+      },
+    });
+
+    if (!handbook) {
+      throw new NotFoundException('Хэндбук не найден');
+    }
+
+    if (handbook.ownerId !== userId) {
+      throw new ForbiddenException(
+        'Изменить описание хэндбука может только владелец',
+      );
+    }
+
+    return this.prisma.handbook.update({
+      where: {
+        id: handbookId,
+      },
+      data: {
+        description: dto.description.trim(),
+      },
+      select: {
+        id: true,
+        description: true,
+        updatedAt: true,
+      },
+    });
   }
 
   async delete(userId: string, handbookId: string): Promise<void> {

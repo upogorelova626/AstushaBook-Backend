@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Patch,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -27,6 +28,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedRequest } from '../auth/types/authenticated-request.type';
 import { CreateHandbookDto } from './dto/create-handbook.dto';
 import { GetHandbooksDto } from './dto/get-handbooks.dto';
+import { UpdateHandbookDescriptionDto } from './dto/update-handbook-description.dto';
 import { HandbooksService } from './handbooks.service';
 
 @ApiTags('Handbooks')
@@ -104,5 +106,32 @@ export class HandbooksController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
     return this.handbooksService.delete(request.user.id, id);
+  }
+
+  @Patch(':id/description')
+  @ApiOperation({
+    summary: 'Изменить описание хэндбука',
+    description: 'Изменить описание хэндбука может только его владелец',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID хэндбука',
+    format: 'uuid',
+  })
+  @ApiOkResponse({
+    description: 'Описание хэндбука успешно изменено',
+  })
+  @ApiForbiddenResponse({
+    description: 'Изменить описание может только владелец',
+  })
+  @ApiNotFoundResponse({
+    description: 'Хэндбук не найден',
+  })
+  updateDescription(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateHandbookDescriptionDto,
+  ) {
+    return this.handbooksService.updateDescription(request.user.id, id, dto);
   }
 }
