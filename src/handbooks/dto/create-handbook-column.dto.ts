@@ -27,7 +27,7 @@ export class CreateHandbookColumnDto {
 
   @ValidateIf(
     (column: CreateHandbookColumnDto) =>
-      column.type === HandbookColumnType.DATE,
+      column.type === HandbookColumnType.LIST,
   )
   @IsArray()
   @ArrayMinSize(1)

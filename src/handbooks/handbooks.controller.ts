@@ -30,6 +30,7 @@ import { CreateHandbookDto } from './dto/create-handbook.dto';
 import { GetHandbooksDto } from './dto/get-handbooks.dto';
 import { UpdateHandbookDescriptionDto } from './dto/update-handbook-description.dto';
 import { HandbooksService } from './handbooks.service';
+import { EditHandbookColumnsDto } from './dto/edit-handbook-columns.dto';
 
 @ApiTags('Handbooks')
 @ApiCookieAuth('accessToken')
@@ -84,6 +85,38 @@ export class HandbooksController {
   })
   create(@Req() request: AuthenticatedRequest, @Body() dto: CreateHandbookDto) {
     return this.handbooksService.create(request.user.id, dto);
+  }
+
+  @Patch(':id/columns')
+  @ApiOperation({
+    summary: 'Изменить атрибуты хэндбука',
+    description:
+      'Создаёт новые, обновляет существующие и удаляет отсутствующие атрибуты',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID хэндбука',
+    format: 'uuid',
+  })
+  @ApiOkResponse({
+    description: 'Атрибуты хэндбука успешно обновлены',
+  })
+  @ApiForbiddenResponse({
+    description: 'Изменить атрибуты может только владелец',
+  })
+  @ApiNotFoundResponse({
+    description: 'Хэндбук не найден',
+  })
+  updateColumns(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) handbookId: string,
+    @Body() dto: EditHandbookColumnsDto,
+  ) {
+    return this.handbooksService.updateColumns(
+      request.user.id,
+      handbookId,
+      dto,
+    );
   }
 
   @Delete(':id')

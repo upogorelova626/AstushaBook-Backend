@@ -14,6 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateHandbookDto } from './dto/create-handbook.dto';
 import { GetHandbooksDto, HandbookListFilter } from './dto/get-handbooks.dto';
 import { UpdateHandbookDescriptionDto } from './dto/update-handbook-description.dto';
+import { EditHandbookColumnsDto } from './dto/edit-handbook-columns.dto';
 
 const HANDBOOKS_BATCH_SIZE = 10;
 
@@ -190,11 +191,205 @@ export class HandbooksService {
       data: {
         description: dto.description.trim(),
       },
-      select: {
-        id: true,
-        description: true,
-        updatedAt: true,
+      include: {
+        columns: {
+          orderBy: {
+            position: 'asc',
+          },
+        },
+        editors: true,
+        viewers: true,
       },
+    });
+  }
+
+  async updateColumns(
+    userId: string,
+    handbookId: string,
+    dto: EditHandbookColumnsDto,
+  ) {
+    const handbook = await this.prisma.handbook.findUnique({
+      where: {
+        id: handbookId,
+      },
+      select: {
+        ownerId: true,
+        columns: {
+          select: {
+            id: true,
+            type: true,
+          },
+        },
+      },
+    });
+
+    if (!handbook) {
+      throw new NotFoundException('Хэндбук не найден');
+    }
+
+    if (handbook.ownerId !== userId) {
+      throw new ForbiddenException(
+        'Изменить атрибуты хэндбука может только владелец',
+      );
+    }
+
+    const existingColumnsById = new Map(
+      handbook.columns.map((column) => [column.id, column]),
+    );
+
+    const receivedColumnIds = dto.columns
+      .map((column) => column.id)
+      .filter((id): id is string => Boolean(id));
+
+    if (new Set(receivedColumnIds).size !== receivedColumnIds.length) {
+      throw new BadRequestException(
+        'Идентификаторы атрибутов не должны повторяться',
+      );
+    }
+
+    const normalizedColumns = dto.columns.map((column, position) => {
+      const name = column.name.trim();
+
+      if (!name) {
+        throw new BadRequestException('Название атрибута не может быть пустым');
+      }
+
+      if (column.id) {
+        const existingColumn = existingColumnsById.get(column.id);
+
+        if (!existingColumn) {
+          throw new BadRequestException(
+            'Один из атрибутов не принадлежит этому хэндбуку',
+          );
+        }
+
+        if (existingColumn.type !== column.type) {
+          throw new BadRequestException(
+            'Нельзя изменять тип существующего атрибута',
+          );
+        }
+      }
+
+      const options =
+        column.type === HandbookColumnType.LIST
+          ? [
+              ...new Set(
+                (column.options ?? [])
+                  .map((option) => option.trim())
+                  .filter(Boolean),
+              ),
+            ]
+          : [];
+
+      if (column.type === HandbookColumnType.LIST && options.length === 0) {
+        throw new BadRequestException(
+          'Для атрибута типа «Список» необходимо добавить хотя бы один вариант',
+        );
+      }
+
+      return {
+        ...column,
+        name,
+        options,
+        position,
+      };
+    });
+
+    const receivedIdsSet = new Set(receivedColumnIds);
+
+    const deletedColumnIds = handbook.columns
+      .filter((column) => !receivedIdsSet.has(column.id))
+      .map((column) => column.id);
+
+    return this.prisma.$transaction(async (transaction) => {
+      if (deletedColumnIds.length > 0) {
+        const rows = await transaction.handbookRow.findMany({
+          where: {
+            handbookId,
+          },
+          select: {
+            id: true,
+            values: true,
+          },
+        });
+
+        await Promise.all(
+          rows.map((row) => {
+            const values =
+              row.values &&
+              typeof row.values === 'object' &&
+              !Array.isArray(row.values)
+                ? { ...row.values }
+                : {};
+
+            for (const columnId of deletedColumnIds) {
+              delete values[columnId];
+            }
+
+            return transaction.handbookRow.update({
+              where: {
+                id: row.id,
+              },
+              data: {
+                values,
+              },
+            });
+          }),
+        );
+
+        await transaction.handbookColumn.deleteMany({
+          where: {
+            handbookId,
+            id: {
+              in: deletedColumnIds,
+            },
+          },
+        });
+      }
+
+      for (const column of normalizedColumns) {
+        if (column.id) {
+          await transaction.handbookColumn.update({
+            where: {
+              id: column.id,
+            },
+            data: {
+              name: column.name,
+              required: column.required,
+              options: column.options,
+              position: column.position,
+            },
+          });
+
+          continue;
+        }
+
+        await transaction.handbookColumn.create({
+          data: {
+            handbookId,
+            name: column.name,
+            type: column.type,
+            required: column.required,
+            options: column.options,
+            position: column.position,
+          },
+        });
+      }
+
+      return transaction.handbook.findUniqueOrThrow({
+        where: {
+          id: handbookId,
+        },
+        include: {
+          columns: {
+            orderBy: {
+              position: 'asc',
+            },
+          },
+          editors: true,
+          viewers: true,
+        },
+      });
     });
   }
 
