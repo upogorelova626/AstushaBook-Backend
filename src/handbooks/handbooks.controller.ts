@@ -52,6 +52,17 @@ export class HandbooksController {
     return this.handbooksService.getAll(request.user.id, dto);
   }
 
+  @Get('filter-counts')
+  @ApiOperation({
+    summary: 'Получить количество хэндбуков для фильтров',
+  })
+  @ApiOkResponse({
+    description: 'Количество хэндбуков для фильтров успешно получено',
+  })
+  getFilterCounts(@Req() request: AuthenticatedRequest) {
+    return this.handbooksService.getFilterCounts(request.user.id);
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Получить хэндбук по идентификатору',

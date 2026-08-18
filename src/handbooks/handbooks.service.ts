@@ -94,13 +94,45 @@ export class HandbooksService {
     });
   }
 
+  async getFilterCounts(userId: string) {
+    const [all, mine, available, favorites] = await Promise.all([
+      this.prisma.handbook.count(),
+
+      this.prisma.handbook.count({
+        where: {
+          ownerId: userId,
+        },
+      }),
+
+      this.prisma.handbook.count({
+        where: this.buildAccessWhere(userId),
+      }),
+
+      this.prisma.handbook.count({
+        where: {
+          favorites: {
+            some: {
+              userId,
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      all,
+      mine,
+      available,
+      favorites,
+    };
+  }
+
   async getAll(userId: string, dto: GetHandbooksDto) {
     const offset = dto.offset ?? 0;
 
     const handbooks = await this.prisma.handbook.findMany({
       where: {
         AND: [
-          this.buildAccessWhere(userId),
           this.buildFilterWhere(userId, dto.filter),
           this.buildSearchWhere(dto),
         ],
@@ -347,6 +379,17 @@ export class HandbooksService {
         });
       }
 
+      for (const [index, columnId] of receivedColumnIds.entries()) {
+        await transaction.handbookColumn.update({
+          where: {
+            id: columnId,
+          },
+          data: {
+            position: -(index + 1),
+          },
+        });
+      }
+
       for (const column of normalizedColumns) {
         if (column.id) {
           await transaction.handbookColumn.update({
@@ -456,11 +499,7 @@ export class HandbooksService {
         };
 
       case HandbookListFilter.AVAILABLE:
-        return {
-          ownerId: {
-            not: userId,
-          },
-        };
+        return this.buildAccessWhere(userId);
 
       case HandbookListFilter.FAVORITES:
         return {
