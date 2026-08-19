@@ -6,21 +6,25 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
 import {
+  HandbookColumnType,
   HandbookEditingAccess,
   HandbookVisibility,
-  HandbookColumnType,
 } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
+import { UsersService } from '../users/users.service';
 import { CreateHandbookDto } from './dto/create-handbook.dto';
+import { EditHandbookColumnsDto } from './dto/edit-handbook-columns.dto';
 import { GetHandbooksDto, HandbookListFilter } from './dto/get-handbooks.dto';
 import { UpdateHandbookDescriptionDto } from './dto/update-handbook-description.dto';
-import { EditHandbookColumnsDto } from './dto/edit-handbook-columns.dto';
 
 const HANDBOOKS_BATCH_SIZE = 10;
 
 @Injectable()
 export class HandbooksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly usersService: UsersService,
+  ) {}
 
   create(ownerId: string, dto: CreateHandbookDto) {
     if (
@@ -127,7 +131,7 @@ export class HandbooksService {
     };
   }
 
-  async getAll(userId: string, dto: GetHandbooksDto) {
+  async getAll(userId: string, accessToken: string, dto: GetHandbooksDto) {
     const offset = dto.offset ?? 0;
 
     const handbooks = await this.prisma.handbook.findMany({
@@ -144,6 +148,35 @@ export class HandbooksService {
         description: true,
         tags: true,
         updatedAt: true,
+        ownerId: true,
+        visibility: true,
+
+        editors: {
+          where: {
+            userId,
+          },
+          select: {
+            userId: true,
+          },
+        },
+
+        viewers: {
+          where: {
+            userId,
+          },
+          select: {
+            userId: true,
+          },
+        },
+
+        favorites: {
+          where: {
+            userId,
+          },
+          select: {
+            userId: true,
+          },
+        },
       },
 
       orderBy: [
@@ -160,9 +193,39 @@ export class HandbooksService {
     });
 
     const hasMore = handbooks.length > HANDBOOKS_BATCH_SIZE;
+    const items = handbooks.slice(0, HANDBOOKS_BATCH_SIZE);
+
+    const ownerIds = [...new Set(items.map((handbook) => handbook.ownerId))];
+
+    const owners = ownerIds.length
+      ? await this.usersService.getByIds(ownerIds, accessToken)
+      : [];
+
+    const ownersById = new Map(owners.map((owner) => [owner.id, owner]));
+
+    const preparedItems = items.map((handbook) => {
+      const hasAccess =
+        handbook.ownerId === userId ||
+        handbook.visibility === HandbookVisibility.EVERYONE ||
+        handbook.editors.length > 0 ||
+        handbook.viewers.length > 0;
+
+      const isFavorite = handbook.favorites.length > 0;
+
+      return {
+        id: handbook.id,
+        name: handbook.name,
+        description: handbook.description,
+        tags: handbook.tags,
+        updatedAt: handbook.updatedAt,
+        hasAccess,
+        isFavorite,
+        owner: ownersById.get(handbook.ownerId) ?? null,
+      };
+    });
 
     return {
-      items: handbooks.slice(0, HANDBOOKS_BATCH_SIZE),
+      items: preparedItems,
       nextOffset: hasMore ? offset + HANDBOOKS_BATCH_SIZE : null,
     };
   }
@@ -459,6 +522,43 @@ export class HandbooksService {
         id: handbookId,
       },
     });
+  }
+
+  async updateFavorite(
+    userId: string,
+    handbookId: string,
+    isFavorite: boolean,
+  ) {
+    if (isFavorite) {
+      await this.prisma.handbookFavorite.upsert({
+        where: {
+          handbookId_userId: {
+            handbookId,
+            userId,
+          },
+        },
+        update: {},
+        create: {
+          handbookId,
+          userId,
+        },
+      });
+
+      return {
+        isFavorite: true,
+      };
+    }
+
+    await this.prisma.handbookFavorite.deleteMany({
+      where: {
+        handbookId,
+        userId,
+      },
+    });
+
+    return {
+      isFavorite: false,
+    };
   }
 
   private buildAccessWhere(userId: string): Prisma.HandbookWhereInput {

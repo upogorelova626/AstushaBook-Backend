@@ -7,9 +7,10 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
-  Post,
   Patch,
+  Post,
   Req,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -27,10 +28,11 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedRequest } from '../auth/types/authenticated-request.type';
 import { CreateHandbookDto } from './dto/create-handbook.dto';
+import { EditHandbookColumnsDto } from './dto/edit-handbook-columns.dto';
 import { GetHandbooksDto } from './dto/get-handbooks.dto';
 import { UpdateHandbookDescriptionDto } from './dto/update-handbook-description.dto';
 import { HandbooksService } from './handbooks.service';
-import { EditHandbookColumnsDto } from './dto/edit-handbook-columns.dto';
+import { UpdateHandbookFavoriteDto } from './dto/update-favourite.dto';
 
 @ApiTags('Handbooks')
 @ApiCookieAuth('accessToken')
@@ -42,14 +44,19 @@ export class HandbooksController {
   @Post('search')
   @ApiOperation({
     summary: 'Получить список хэндбуков',
-    description:
-      'Возвращает доступные пользователю хэндбуки по 10 штук с поиском и фильтрацией',
+    description: 'Возвращает хэндбуки по 10 штук с поиском и фильтрацией',
   })
   @ApiOkResponse({
     description: 'Список хэндбуков успешно получен',
   })
   getAll(@Req() request: AuthenticatedRequest, @Body() dto: GetHandbooksDto) {
-    return this.handbooksService.getAll(request.user.id, dto);
+    const accessToken = request.cookies.accessToken;
+
+    if (!accessToken) {
+      throw new UnauthorizedException('Access token отсутствует');
+    }
+
+    return this.handbooksService.getAll(request.user.id, accessToken, dto);
   }
 
   @Get('filter-counts')
@@ -177,5 +184,18 @@ export class HandbooksController {
     @Body() dto: UpdateHandbookDescriptionDto,
   ) {
     return this.handbooksService.updateDescription(request.user.id, id, dto);
+  }
+
+  @Patch(':id/favorite')
+  updateFavorite(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') handbookId: string,
+    @Body() dto: UpdateHandbookFavoriteDto,
+  ) {
+    return this.handbooksService.updateFavorite(
+      request.user.id,
+      handbookId,
+      dto.isFavorite,
+    );
   }
 }
