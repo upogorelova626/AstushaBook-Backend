@@ -230,6 +230,91 @@ export class HandbooksService {
     };
   }
 
+  async getPreviewsByIds(userId: string, accessToken: string, ids: string[]) {
+    if (!ids.length) {
+      return [];
+    }
+
+    const handbooks = await this.prisma.handbook.findMany({
+      where: {
+        id: {
+          in: ids,
+        },
+        AND: [this.buildAccessWhere(userId)],
+      },
+
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        tags: true,
+        updatedAt: true,
+        ownerId: true,
+        visibility: true,
+
+        editors: {
+          where: {
+            userId,
+          },
+          select: {
+            userId: true,
+          },
+        },
+
+        viewers: {
+          where: {
+            userId,
+          },
+          select: {
+            userId: true,
+          },
+        },
+
+        favorites: {
+          where: {
+            userId,
+          },
+          select: {
+            userId: true,
+          },
+        },
+      },
+    });
+
+    const ownerIds = [
+      ...new Set(handbooks.map((handbook) => handbook.ownerId)),
+    ];
+
+    const owners = ownerIds.length
+      ? await this.usersService.getByIds(ownerIds, accessToken)
+      : [];
+
+    const ownersById = new Map(owners.map((owner) => [owner.id, owner]));
+
+    const preparedItems = handbooks.map((handbook) => {
+      const hasAccess =
+        handbook.ownerId === userId ||
+        handbook.visibility === HandbookVisibility.EVERYONE ||
+        handbook.editors.length > 0 ||
+        handbook.viewers.length > 0;
+
+      return {
+        id: handbook.id,
+        name: handbook.name,
+        description: handbook.description,
+        tags: handbook.tags,
+        updatedAt: handbook.updatedAt,
+        hasAccess,
+        isFavorite: handbook.favorites.length > 0,
+        owner: ownersById.get(handbook.ownerId) ?? null,
+      };
+    });
+
+    return ids
+      .map((id) => preparedItems.find((handbook) => handbook.id === id))
+      .filter(Boolean);
+  }
+
   async getById(userId: string, handbookId: string) {
     const handbook = await this.prisma.handbook.findFirst({
       where: {

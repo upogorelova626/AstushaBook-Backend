@@ -33,6 +33,7 @@ import { GetHandbooksDto } from './dto/get-handbooks.dto';
 import { UpdateHandbookDescriptionDto } from './dto/update-handbook-description.dto';
 import { HandbooksService } from './handbooks.service';
 import { UpdateHandbookFavoriteDto } from './dto/update-favourite.dto';
+import { GetHandbookPreviewsDto } from './dto/get-handbook-previews.dto';
 
 @ApiTags('Handbooks')
 @ApiCookieAuth('accessToken')
@@ -57,6 +58,35 @@ export class HandbooksController {
     }
 
     return this.handbooksService.getAll(request.user.id, accessToken, dto);
+  }
+
+  @Post('previews')
+  @ApiOperation({
+    summary: 'Получить превью хэндбуков по идентификаторам',
+    description:
+      'Возвращает превью хэндбуков по переданным идентификаторам с учётом прав доступа',
+  })
+  @ApiOkResponse({
+    description: 'Превью хэндбуков успешно получены',
+  })
+  @ApiNotFoundResponse({
+    description: 'Хэндбуки не найдены',
+  })
+  getPreviewsByIds(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: GetHandbookPreviewsDto,
+  ) {
+    const accessToken = request.cookies.accessToken;
+
+    if (!accessToken) {
+      throw new UnauthorizedException('Access token отсутствует');
+    }
+
+    return this.handbooksService.getPreviewsByIds(
+      request.user.id,
+      accessToken,
+      dto.ids,
+    );
   }
 
   @Get('filter-counts')
@@ -187,9 +217,24 @@ export class HandbooksController {
   }
 
   @Patch(':id/favorite')
+  @ApiOperation({
+    summary: 'Изменить статус избранного хэндбука',
+    description: 'Добавляет хэндбук в избранное или удаляет его из избранного',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'UUID хэндбука',
+    format: 'uuid',
+  })
+  @ApiOkResponse({
+    description: 'Статус избранного успешно изменён',
+  })
+  @ApiNotFoundResponse({
+    description: 'Хэндбук не найден',
+  })
   updateFavorite(
     @Req() request: AuthenticatedRequest,
-    @Param('id') handbookId: string,
+    @Param('id', ParseUUIDPipe) handbookId: string,
     @Body() dto: UpdateHandbookFavoriteDto,
   ) {
     return this.handbooksService.updateFavorite(
